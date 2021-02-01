@@ -124,9 +124,20 @@ def identify_arbi(tickers, exchange, amount_of_origin, vol_safety_thresh=0.1, pr
 				arbi_routes.append((route, trade_actions, margin))
 				if len(arbi_routes) > 10:
 					for route in sorted(arbi_routes, key=lambda x: x[2]):
+						if route[0][0]["symbol"].split('/')[1] != 'BTC':
+							continue
 						try_route(route)
 
-def try_route(route):
+def aud_to_ticker(aud_amount, ticker):
+	btc_aud = exchange.fetch_ticker('BTC/AUD') # btc/aud
+	trade_amount_btc = trade_amount_aud * btc_aud['bid']
+	trade_amount_ticker = 0 # 0.0001 aud to the quote symbol on the first ticker
+	try:
+		get_tickers_with_curr(route[0][0]["symbol"].split('/')[1])
+	except:
+		pass
+
+def try_route(route, amount_to_trade):
 	vol_safety_thresh = 0.20
 	margin_lost = False
 	trade_amount_aud = 0.0001
@@ -142,25 +153,22 @@ def try_route(route):
 			actions.append("asks")
 		else:
 			actions.append("bids")
-
-	for idx, ask in enumerate(exchange.fetch_order_book(route[0][1]["symbol"])[action[0]]):
+	
+	price = [3]
+	for idx, ask in enumerate(exchange.fetch_order_book(route[0][0]["symbol"])[action[0]]):
 		if margin_lost:
 			break
 		if ask[1] <= (ask[1] + ask[1]*vol_safety_thresh): # check if enough volume exists to make the arbi
 			print("Not enough volume at " + str(ask[1]))
 			continue
-		if route[0][1]["ask"] != ask[0]: # check if the ask for this trade has changed since first building the arbi routes, if so, recalculate the arbi cross rate
-			route[0][1]["ask"] = ask[0]
-			recalc = True
-		for idx_2, ask_2 in enumerate(exchange.fetch_order_book(route[0][2]["symbol"])[action[1]]):
+		price[0] = ask[0]
+		for idx_2, ask_2 in enumerate(exchange.fetch_order_book(route[0][1]["symbol"])[action[1]]):
 			if margin_lost:
 				break
 			if ask_2[1] <= (ask_2[1] + ask_2[1]*vol_safety_thresh):
 				continue
-			if route[0][2]["ask"] != ask_2[0]:
-				route[0][2]["ask"] = ask_2[0]
-				recalc = True
-			for idx_3, ask_3 in enumerate(exchange.fetch_order_book(route[0][3]["symbol"])[action[2]]):
+			price[1] = ask[1]
+			for idx_3, ask_3 in enumerate(exchange.fetch_order_book(route[0][2]["symbol"])[action[2]]):
 				if margin_lost:
 					break
 				if ask_3[1] <= (ask_3[1] + ask_3[1]*vol_safety_thresh):
