@@ -146,16 +146,16 @@ def try_route(route, exchange, profit_margin):
         convert_amount(order, trade_amount_aud)
         # if the order's ask is less than the trade_amount_aud, continue loop with the next ask price
         # To summarise, this statement checks to see if the order at this price does not have enough volume, and thus,
-        # is lower in value than the desired amount set in trade_amount_aud 
+        # is lower in value than the desired amount set in trade_amount_aud. 
         order_value = order[0] * order[1]
         if order[0] * order[1] < trade_amount_aud:
             continue
         else:
-            btc_amount = order
+            btc_amount = order[0]
     # recalculate current cross rate for higher accuracy
     recalc = False
     actions = []
-
+    sides = []
     # depending on the trade action, retrieve orderbook that contains asks or bids
     for action in route[1]:
         if action == True:
@@ -163,32 +163,54 @@ def try_route(route, exchange, profit_margin):
         else:
             actions.append("bids")
     
+    for action in route[1]:
+        if action == True:
+            sides.append("buy")
+        else:
+            sides.append("sell")
+
+
     price = [3]
     volume = [3]
+    base_amount = [3]
+    
 
-    # loop over each orderbook in the route, checking if there is enough volume to safely execute the tade
+    # Series of loops that iterate over each pair in the arbitrage route to calculate the best price avaliable while still having enough volume
+    # to fill the trades.
     for idx, order in enumerate(exchange.fetch_order_book(route[0][0]["symbol"])[actions[0]]):
         print('hi')
-        convert_amount(order, )
-        if order[1] <= (order[1] + order[1]*vol_safety_thresh): # check if enough volume exists to make the arbi
+        # if there is enough volume to make the arbi
+        if order[1] > (btc_amount + btc_amount*vol_safety_thresh): # check if enough volume exists to make the arbi
+            base_amount[0] = convert_amount(order, btc_amount)
+            price[0] = order[0]
+            volume[0] = order[1]
+            # if not, go to the next closest price and reiterate
+        else:
             print("Not enough volume at " + str(order[1]))
             continue
-        price[0] = order[0]
-        volume[0] = order[1]
+
         for idx_2, order_2 in enumerate(exchange.fetch_order_book(route[0][1]["symbol"])[actions[1]]):
             print('hi2')
-            if order_2[1] <= (order_2[1] + order_2[1]*vol_safety_thresh):
+            if order_2[1] > (base_amount[0] + base_amount[0]*vol_safety_thresh):
+                base_amount[1] = convert_amount(order_2, base_amount[0])
+                price[1] = order_2[0]
+                volume[1] = order_2[1]
+
+            else:
                 print("Not enough volume at " + str(order_2[1]))
                 continue
-            price[1] = order_2[0]
-            volume[1] = order_2[1]
+
             for idx_3, order_3 in enumerate(exchange.fetch_order_book(route[0][2]["symbol"])[actions[2]]):
                 print('hi3')
-                if order_3[1] <= (order_3[1] + order_3[1]*vol_safety_thresh):
+                if order_3[1] > (base_amount[1] + base_amount[1]*vol_safety_thresh):
+                    base_amount[2] = convert_amount(order_2, base_amount[1])
+                    price[2] = order_3[0]
+                    volume[2] = order_3[1]
+
+                else:
                     print("Not enough volume at " + str(order_3[1]))
                     continue
-                price[2] = order_3[0]
-                volume[2] = order_3[1]
+
                 # check if margin is enough
                 margin = get_route_margin(route[0], trade_actions, fee_per_trade)
                 print(margin)
