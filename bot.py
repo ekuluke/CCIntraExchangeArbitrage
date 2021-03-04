@@ -5,6 +5,8 @@ import ccxt
 pd.options.display.float_format = '{:.10f}'.format
 pd.options.display.precision = 5
 
+# GLOBALS
+
 def get_high_vol_pairs(exchange, vol=100000):
     #print(vars(exchange))
     tickers = exchange.fetch_tickers()
@@ -69,8 +71,9 @@ def identify_arbi(tickers, exchange, amount_of_origin, vol_safety_thresh=0.1, pr
     # amount of origin = amount of the first quote currency(origin) that will be traded 
     # vol_safety_tresh = additional percentage of an ask's amount that acts as a threshold in an effort to prevent slippage
     # where the quote symbol is the key
-    fee_per_trade = 0.0075
     cross_rate = 0
+    # TODO: CALCULATE BEFORE RELEASE
+    fee_per_trade = 0.0075
     arbi_routes = []
     trade_action, trade_action_2, trade_action_3 = True, True, True
 
@@ -121,39 +124,31 @@ def identify_arbi(tickers, exchange, amount_of_origin, vol_safety_thresh=0.1, pr
             print("route: {}:{} -> {}:{} -> {}:{} || margin = {}".format(ticker["symbol"], trade_action, ticker_2["symbol"], trade_action_2, ticker_3["symbol"], trade_action_3, margin))
             if margin >= 1 + (1 * profit_margin) and not margin >= 2:
                 print("Adding to arbi_routes")
+                #TODO: Refactor route into a class for much greater readability
                 arbi_routes.append((route, trade_actions, margin))
 
-                if len(arbi_routes) % 10 == 0:
-                    #for route in sorted(arbi_routes, key=lambda x: x[2]):
-                    for route in arbi_routes[-10:]:
-                        if route[0][0]["symbol"].split('/')[1] != 'BTC':
-                            continue
-                        print("trying route")
-                        try_route(route, exchange, profit_margin)
-
-def convert_amount(order, quote_amount):
-    # converts the quote amount into the base currency amount
-    base_amount = quote_amount * order[0]
-    return base_amount
+            if len(arbi_routes) % 10 == 0:
+                #for route in sorted(arbi_routes, key=lambda x: x[2]):
+                for route in arbi_routes[-10:]:
+                    if route[0][0]["symbol"].split('/')[1] != 'BTC':
+                        continue
+                    print("trying route")
+                    try_route(route, exchange, profit_margin, fee_per_trade)
 
 #def get_vol_by_price(ticker, symbol_1_vol):
 
-def try_route(route, exchange, profit_margin):
+def try_route(route, exchange, profit_margin, fee_per_trade):
     vol_safety_thresh = 0.20
     margin_lost = False
     trade_amount_aud = 0.001 # amount, in aud, of the first trade. Will be converted to btc below
     for idx, order in enumerate(exchange.fetch_order_book('BTC/AUD')['asks']):
-        convert_amount(order, trade_amount_aud)
         # if the order's ask is less than the trade_amount_aud, continue loop with the next ask price
         # To summarise, this statement checks to see if the order at this price does not have enough volume, and thus,
         # is lower in value than the desired amount set in trade_amount_aud. 
-        order_value = order[0] * order[1]
-        if order[0] * order[1] < trade_amount_aud:
-            continue
-        else:
-            btc_amount = order[0]
-    # recalculate current cross rate for higher accuracy
-    recalc = False
+        btc_amount = trade_amount_aud/order[0]
+        if btc_amount < order[1] + order[1] * vol_safety_thresh:
+            break
+
     actions = []
     sides = []
     # depending on the trade action, retrieve orderbook that contains asks or bids
@@ -170,29 +165,32 @@ def try_route(route, exchange, profit_margin):
             sides.append("sell")
 
 
-    price = [3]
-    volume = [3]
-    base_amount = [3]
+    price = [0]*3
+    volume = [0]*3
+    base_amount = [0]*3
+    print(btc_amount)
     
 
     # Series of loops that iterate over each pair in the arbitrage route to calculate the best price avaliable while still having enough volume
     # to fill the trades.
     for idx, order in enumerate(exchange.fetch_order_book(route[0][0]["symbol"])[actions[0]]):
-        print('hi')
+        base_amount[0] = btc_amount/order[0]
+        print(order[1])
+        print(base_amount[0] + base_amount[0]*vol_safety_thresh)
         # if there is enough volume to make the arbi
-        if order[1] > (btc_amount + btc_amount*vol_safety_thresh): # check if enough volume exists to make the arbi
-            base_amount[0] = convert_amount(order, btc_amount)
+        if order[1] > (base_amount[0] + base_amount[0]*vol_safety_thresh): 
             price[0] = order[0]
             volume[0] = order[1]
-            # if not, go to the next closest price and reiterate
+            # if not, go to the next closest price in the order book 
         else:
             print("Not enough volume at " + str(order[1]))
             continue
 
         for idx_2, order_2 in enumerate(exchange.fetch_order_book(route[0][1]["symbol"])[actions[1]]):
             print('hi2')
-            if order_2[1] > (base_amount[0] + base_amount[0]*vol_safety_thresh):
-                base_amount[1] = convert_amount(order_2, base_amount[0])
+            # base coin on previous ticker becomes the quote coin on the next ticker
+            base_amount[1] = base_amount[0]/order_2[0]
+            if order_2[1] > (base_amount[1] + base_amount[1]*vol_safety_thresh):
                 price[1] = order_2[0]
                 volume[1] = order_2[1]
 
@@ -202,8 +200,8 @@ def try_route(route, exchange, profit_margin):
 
             for idx_3, order_3 in enumerate(exchange.fetch_order_book(route[0][2]["symbol"])[actions[2]]):
                 print('hi3')
-                if order_3[1] > (base_amount[1] + base_amount[1]*vol_safety_thresh):
-                    base_amount[2] = convert_amount(order_2, base_amount[1])
+                base_amount[2] = base_amount[1]/order_3[0]
+                if order_3[1] > (base_amount[2] + base_amount[2]*vol_safety_thresh):
                     price[2] = order_3[0]
                     volume[2] = order_3[1]
 
@@ -212,22 +210,23 @@ def try_route(route, exchange, profit_margin):
                     continue
 
                 # check if margin is enough
-                margin = get_route_margin(route[0], trade_actions, fee_per_trade)
+                # pass in route tickers, route trade actions and fee_per_trade
+                margin = get_route_margin(route[0], route[1], fee_per_trade)
                 print(margin)
                 if margin >= 1 + (1 * profit_margin) and not margin >= 2:
                     #arbi_routes.append((route, trade_actions, margin))
-                    trade_amount_aud = 0.0001
-                    btc_aud = exchange.fetch_ticker('BTC/AUD') # btc/aud
-                    trade_amount_btc = trade_amount_aud * btc_aud['bid']
-                    tickers = (ticker["symbol"], ticker_2["symbol"], ticker_3["symbol"])
-                    for i in range(len(tickers)):
-                        print(exchange.fetch_order_book(tickers[i]["symbol"]))
-                        if trade_actions[i] == True:
-                            print("placing a buy order for " + trade_amount_btc + " btc at: " + price[i])
-                            #exchange.create_limit_buy_order(tickers[i]["symbol"], trade_amount_btc, price[i])
+                    # Iterate over tickers in route, executing trades
+                    for i in range(len(route[0])):
+                        ticker = route[0][i]
+                        # if trade_action == buy
+                        if route[1] == True:
+                            print("place a buy order for " + ticker['symbol'] + 'with a base currency quantity of: ' +  str(base_amount[i]) +
+                                 "at a price of: " + str(price[i]))
+                            #exchange.create_limit_buy_order(ticker['symbol'], base_amount[i], price[i])
                         else: 
-                            print("placing a sell order for " + trade_amount_btc + " btc at: " + price[i])
-                            #exchange.create_limit_sell_order(tickers[i]["symbol"], trade_amount_btc, price[i])
+                            print("place a sell order for " + ticker['symbol'] + 'with a base currency quantity of: ' +  str(base_amount[i]) +
+                                 "at a price of: " + str(price[i]))
+                            #exchange.create_limit_sell_order(ticker['symbol'], trade_amount_btc, price[i])
                     print("executing_trade")
 
                     #execute_trade(())
