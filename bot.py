@@ -150,7 +150,7 @@ def identify_arbi(tickers, exchange, amount_of_origin, vol_safety_thresh=0.1, pr
                 #print(*str_routes[0])
                 #TODO: Refactor route into a class for much greater readability
                 #arbi_routes.append((route, trade_actions, margin))
-                route = (route_tickers, trade_actions, margin)
+                #route = (route_tickers, trade_actions, margin)
                 sides = []
                 for action in trade_actions:
                     if action == True:
@@ -256,12 +256,12 @@ def try_route(route):
 
     # check if margin is enough
     # pass in route tickers, route trade actions and fee_per_trade
-    execute = False
-    while(not execute):
+    execute_trades = False
+    while(not execute_trades):
         route.refresh()
         route.visualize()
         # refresh margin every few seco
-        if route.margin >= 1 + (1 * profit_margin) and not margin >= 2:
+        if route.profitable:
             #arbi_routes.append((route, trade_actions, margin))
             
             # Print some info about the calculated trades in the route
@@ -272,21 +272,18 @@ def try_route(route):
                 # if trade_action == buy
                 if route.sides[i] == 'buy':
                     print("place a buy order for " + ticker['symbol'] + 'with a base currency quantity of: ' +  str(route.amounts_rec[i]) +
-                         "at a price of: " + str(price[i]) + '?')
+                         "at a price of: " + str(route.prices[i]) + '?')
                     #exchange.create_limit_buy_order(ticker['symbol'], route.amounts_rec[i], price[i])
                 else: 
                     print("place a sell order for " + ticker['symbol'] + 'with a base currency quantity of: ' +  str(route.amounts_rec[i]) +
-                         "at a price of: " + str(price[i]) + '?')
+                         "at a price of: " + str(route.prices[i]) + '?')
                     #exchange.create_limit_sell_order(ticker['symbol'], trade_amount_btc, price[i])
-
-
-            print("executing_trade")
-
-            #execute_trade(())
-        else: 
-            print("Profit Margin lost on route refresh, is now: " + str(route.margin))
-            return
-        
+        if input("execute trades: y/n") == 'y':
+            execute_trades = True
+            route.execute()
+            break
+        else:
+            execute_trades = False
 
 exchange_id = 'binance'
 exchange_class = getattr(ccxt, exchange_id)
