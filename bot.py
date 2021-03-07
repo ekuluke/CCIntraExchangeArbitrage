@@ -3,13 +3,12 @@ import pandas as pd
 import numpy as np
 import ccxt
 import time
+import multiprocess as mp
 from route import Route
 pd.options.display.float_format = '{:.10f}'.format
 pd.options.display.precision = 5
 
-# GLOBALS
-
-def get_high_vol_pairs(exchange, vol=10000):
+def get_high_vol_pairs(exchange, vol=25):
     #print(vars(exchange))
     tickers = exchange.fetch_tickers()
     #print(tickers)
@@ -42,12 +41,12 @@ def get_tickers_with_base(symbol, tickers):
 
     return tickers_with_base
 
-def get_tickers_with_curr(curr, tickers, origin_to_exclude):
+def get_tickers_with_curr(curr,origin_to_exclude):
     # origin needs to be excluded so that this does not return the first ticker which the curr is found in
     # returns ticker pairs that are curr/x or x/curr
     tickers_with_curr = {}
     #print("Getting pairs that can be bought with: " + curr)
-    for ticker in tickers.values():
+    for ticker in high_vol_tickers.values():
         if (curr == ticker["symbol"].split('/')[0] or curr == ticker["symbol"].split('/')[1]) and origin_to_exclude != ticker["symbol"] :
             #print("Found pair: " + ticker["symbol"] + " contains this currency: " + curr)
             tickers_with_curr[ticker['symbol']] = ticker
@@ -79,90 +78,95 @@ def get_estimate_route_margin(tickers, trade_actions, fee_per_trade):
     #print("profit margin: {}".format(amount/origin_amount))
     return amount / origin_amount
 
-def identify_arbi(tickers, exchange, amount_of_origin, vol_safety_thresh=0.1, profit_margin=0.002):
+
+    # GLOBALS
+
+def identify_arbi(exchange, amount_of_origin, vol_safety_thresh=0.1, profit_margin=0.002):
     # amount of origin = amount of the first quote currency(origin) that will be traded 
     # vol_safety_tresh = additional percentage of an ask's amount that acts as a threshold in an effort to prevent slippage
     # where the quote symbol is the key
     cross_rate = 0
     # TODO: CALCULATE BEFORE RELEASE
+
+    if __name__ ==  '__main__':
+        with mp.Pool(4) as pool:
+            pool.map(check_if_arbitrage_exists, high_vol_tickers.values())
+
+
+
+def check_if_arbitrage_exists(ticker):
     fee_per_trade = 0.00075
-    arbi_routes = []
-    str_routes = []
+    profit_margin = 0.001
     trade_action, trade_action_2, trade_action_3 = True, True, True
-
-    for ticker in tickers.values():
-        if ticker["symbol"].split('/')[1] != 'BTC':
-            pass
-        if float(ticker['info']['bidPrice']) <= 0.00000000 or int(ticker['info']['count']) < 10:
-            print('ERROR: corrupted ticker: ' + ticker['symbol'])
+    if float(ticker['info']['bidPrice']) <= 0.00000000 or int(ticker['info']['count']) < 5:
+        print('ERROR: corrupted ticker: ' + ticker['symbol'])
+        return
+    origin = ticker["symbol"]
+    print("Finding routes for " + ticker["symbol"])
+    trade_action = True
+    for ticker_2 in get_tickers_with_curr(ticker["symbol"].split('/')[0], origin).values():
+        if float(ticker_2['info']['bidPrice']) <= 0.00000000 or int(ticker_2['info']['count']) < 5:
+            print('ERROR: corrupted ticker: ' + ticker_2['symbol'])
             continue
-        origin = ticker["symbol"]
-        print("Finding routes for " + ticker["symbol"])
-        trade_action = True
-        for ticker_2 in get_tickers_with_curr(ticker["symbol"].split('/')[0], tickers, origin).values():
-            if float(ticker_2['info']['bidPrice']) <= 0.00000000 or int(ticker_2['info']['count']) < 10:
-                print('ERROR: corrupted ticker: ' + ticker_2['symbol'])
-                continue
-            if ticker_2["symbol"].split('/')[1] == ticker["symbol"].split('/')[0]:
-                trade_action_2 = True
-            elif ticker_2["symbol"].split('/')[0] == ticker["symbol"].split('/')[0]:            
-                trade_action_2 = False
-            #print("route: {}:{} -> {}:{} ->".format(ticker["symbol"], trade_action, ticker_2["symbol"], trade_action))
-            if(ticker["symbol"].split('/')[0] != ticker_2["symbol"].split('/')[0]):
-                try:
-                    ticker_3 = exchange.fetch_ticker(ticker["symbol"].split('/')[1] + '/' + ticker_2["symbol"].split('/')[0])
-                    trade_action_3 = True
+        if ticker_2["symbol"].split('/')[1] == ticker["symbol"].split('/')[0]:
+            trade_action_2 = True
+        elif ticker_2["symbol"].split('/')[0] == ticker["symbol"].split('/')[0]:            
+            trade_action_2 = False
+        #print("route: {}:{} -> {}:{} ->".format(ticker["symbol"], trade_action, ticker_2["symbol"], trade_action))
+        if(ticker["symbol"].split('/')[0] != ticker_2["symbol"].split('/')[0]):
+            try:
+                ticker_3 = exchange.fetch_ticker(ticker["symbol"].split('/')[1] + '/' + ticker_2["symbol"].split('/')[0])
+                trade_action_3 = True
+            except:
+                try: 
+                    ticker_3 = exchange.fetch_ticker( ticker_2["symbol"].split('/')[0] + '/' + ticker["symbol"].split('/')[1])
+                    trade_action_3 = False
                 except:
-                    try: 
-                        ticker_3 = exchange.fetch_ticker( ticker_2["symbol"].split('/')[0] + '/' + ticker["symbol"].split('/')[1])
-                        trade_action_3 = False
-                    except:
-                        continue
-            elif(ticker["symbol"].split('/')[0] != ticker_2["symbol"].split('/')[1]):
+                    continue
+        elif(ticker["symbol"].split('/')[0] != ticker_2["symbol"].split('/')[1]):
+            try:
+                ticker_3 = exchange.fetch_ticker(ticker["symbol"].split('/')[1] + '/' + ticker_2["symbol"].split('/')[1])
+                trade_action_3 = True
+            except:
                 try:
-                    ticker_3 = exchange.fetch_ticker(ticker["symbol"].split('/')[1] + '/' + ticker_2["symbol"].split('/')[1])
-                    trade_action_3 = True
+                    ticker_3 = exchange.fetch_ticker(ticker_2["symbol"].split('/')[1] + '/' + ticker["symbol"].split('/')[1])
+                    trade_action_3 = False
                 except:
-                    try:
-                        ticker_3 = exchange.fetch_ticker(ticker_2["symbol"].split('/')[1] + '/' + ticker["symbol"].split('/')[1])
-                        trade_action_3 = False
-                    except:
-                        continue
-            else:
-                continue
+                    continue
+        else:
+            continue
 
-            if float(ticker_3['info']['bidPrice']) <= 0.00000000 or int(ticker_3['info']['count']) < 10:
-                print('ERROR: corrupted ticker: ' + ticker_3['symbol'])
-                continue
+        if float(ticker_3['info']['bidPrice']) <= 0.00000000 or int(ticker_3['info']['count']) < 5:
+            print('ERROR: corrupted ticker: ' + ticker_3['symbol'])
+            continue
 
-            #print("route: {}:{} -> {}:{} -> {}:{}".format(ticker["symbol"], trade_action, ticker_2["symbol"], trade_action_2, ticker_3["symbol"], trade_action_3))
-            route_tickers = [ticker, ticker_2, ticker_3]
-            trade_actions = [trade_action, trade_action_2, trade_action_3]
-            margin = get_estimate_route_margin(route_tickers, trade_actions, fee_per_trade)
-            if margin > 1:
-                print("route: {}:{} -> {}:{} -> {}:{} || margin = {}".format(ticker["symbol"], trade_action, ticker_2["symbol"], trade_action_2, ticker_3["symbol"], trade_action_3, margin))
-            if margin >= 1 + (1 * profit_margin) and not margin >= 2:
-                #str_routes.append(("route: {}:{} -> {}:{} -> {}:{} || margin = {}".format(ticker["symbol"], trade_action, ticker_2["symbol"], trade_action_2, ticker_3["symbol"], trade_action_3, margin), route, trade_actions, margin))
-                print("trying route")
-                #for route in str_routes:
-                #route = (route[0], route[1], route[2], get_estimate_route_margin(route[1],route[2], fee_per_trade))
-                #str_routes.sort(key=lambda x: x[3], reverse=True) 
-                #print(*str_routes[0])
-                #TODO: Refactor route into a class for much greater readability
-                #arbi_routes.append((route, trade_actions, margin))
-                #route = (route_tickers, trade_actions, margin)
-                sides = []
-                for action in trade_actions:
-                    if action == True:
-                        sides.append("buy")
-                    else:
-                        sides.append("sell")
+        #print("route: {}:{} -> {}:{} -> {}:{}".format(ticker["symbol"], trade_action, ticker_2["symbol"], trade_action_2, ticker_3["symbol"], trade_action_3))
+        route_tickers = [ticker, ticker_2, ticker_3]
+        trade_actions = [trade_action, trade_action_2, trade_action_3]
+        margin = get_estimate_route_margin(route_tickers, trade_actions, fee_per_trade)
+        if margin > 1:
+            print("route: {}:{} -> {}:{} -> {}:{} || margin = {}".format(ticker["symbol"], trade_action, ticker_2["symbol"], trade_action_2, ticker_3["symbol"], trade_action_3, margin))
+        if margin >= 1 + (1 * profit_margin) and not margin >= 2:
+            #str_routes.append(("route: {}:{} -> {}:{} -> {}:{} || margin = {}".format(ticker["symbol"], trade_action, ticker_2["symbol"], trade_action_2, ticker_3["symbol"], trade_action_3, margin), route, trade_actions, margin))
+            print("trying route")
+            #for route in str_routes:
+            #route = (route[0], route[1], route[2], get_estimate_route_margin(route[1],route[2], fee_per_trade))
+            #str_routes.sort(key=lambda x: x[3], reverse=True) 
+            #print(*str_routes[0])
+            #TODO: Refactor route into a class for much greater readability
+            #arbi_routes.append((route, trade_actions, margin))
+            #route = (route_tickers, trade_actions, margin)
+            sides = []
+            for action in trade_actions:
+                if action == True:
+                    sides.append("buy")
+                else:
+                    sides.append("sell")
 
-                route = Route(route_tickers, sides, exchange, profit_margin, fee_per_trade)
-                try_route(route)
-                #try_route(arbi_routes.pop(), exchange, profit_margin, fee_per_trade)
-            #if len(arbi_routes) >= 10 and len(arbi_routes) % 10 == 0:
-
+            route = Route(route_tickers, sides, exchange, profit_margin, fee_per_trade)
+            try_route(route)
+     
+        
 #def get_vol_by_price(ticker, symbol_1_vol):
 def get_route_margin(route, exchange, profit_margin, fee_per_trade):
     vol_safety_thresh = 0.20
@@ -285,6 +289,7 @@ def try_route(route):
         else:
             execute_trades = False
 
+
 exchange_id = 'binance'
 exchange_class = getattr(ccxt, exchange_id)
 exchange = exchange_class({
@@ -300,7 +305,7 @@ filename = '{}-{}2020.csv'.format(symb.replace('/','-'),t_frame)
 markets = exchange.load_markets()
 
 print(exchange.has['fetchTickers'])
-high_vol_pairs = get_high_vol_pairs(exchange)
-identify_arbi(high_vol_pairs, exchange, 1)
+high_vol_tickers = get_high_vol_pairs(exchange)
+identify_arbi(exchange,1)
 
 
