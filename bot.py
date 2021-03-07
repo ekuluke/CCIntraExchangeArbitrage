@@ -2,6 +2,8 @@ import tqdm
 import pandas as pd
 import numpy as np
 import ccxt
+import time
+from route import Route
 pd.options.display.float_format = '{:.10f}'.format
 pd.options.display.precision = 5
 
@@ -77,7 +79,7 @@ def get_estimate_route_margin(tickers, trade_actions, fee_per_trade):
     #print("profit margin: {}".format(amount/origin_amount))
     return amount / origin_amount
 
-def identify_arbi(tickers, exchange, amount_of_origin, vol_safety_thresh=0.1, profit_margin=0.0001):
+def identify_arbi(tickers, exchange, amount_of_origin, vol_safety_thresh=0.1, profit_margin=0.002):
     # amount of origin = amount of the first quote currency(origin) that will be traded 
     # vol_safety_tresh = additional percentage of an ask's amount that acts as a threshold in an effort to prevent slippage
     # where the quote symbol is the key
@@ -134,9 +136,9 @@ def identify_arbi(tickers, exchange, amount_of_origin, vol_safety_thresh=0.1, pr
                 continue
 
             #print("route: {}:{} -> {}:{} -> {}:{}".format(ticker["symbol"], trade_action, ticker_2["symbol"], trade_action_2, ticker_3["symbol"], trade_action_3))
-            route = [ticker, ticker_2, ticker_3]
+            route_tickers = [ticker, ticker_2, ticker_3]
             trade_actions = [trade_action, trade_action_2, trade_action_3]
-            margin = get_estimate_route_margin(route, trade_actions, fee_per_trade)
+            margin = get_estimate_route_margin(route_tickers, trade_actions, fee_per_trade)
             if margin > 1:
                 print("route: {}:{} -> {}:{} -> {}:{} || margin = {}".format(ticker["symbol"], trade_action, ticker_2["symbol"], trade_action_2, ticker_3["symbol"], trade_action_3, margin))
             if margin >= 1 + (1 * profit_margin) and not margin >= 2:
@@ -148,7 +150,16 @@ def identify_arbi(tickers, exchange, amount_of_origin, vol_safety_thresh=0.1, pr
                 #print(*str_routes[0])
                 #TODO: Refactor route into a class for much greater readability
                 #arbi_routes.append((route, trade_actions, margin))
-                try_route((route, trade_actions, margin), exchange, profit_margin, fee_per_trade)
+                route = (route_tickers, trade_actions, margin)
+                sides = []
+                for action in trade_actions:
+                    if action == True:
+                        sides.append("buy")
+                    else:
+                        sides.append("sell")
+
+                route = Route(route_tickers, sides, exchange, profit_margin, fee_per_trade)
+                try_route(route)
                 #try_route(arbi_routes.pop(), exchange, profit_margin, fee_per_trade)
             #if len(arbi_routes) >= 10 and len(arbi_routes) % 10 == 0:
 
@@ -193,7 +204,8 @@ def get_route_margin(route, exchange, profit_margin, fee_per_trade):
     # Series of loops that iterate over each pair in the arbitrage route to calculate the best price avaliable while still having enough volume
     # to fill the trades.
     for pair_idx, pair in enumerate(route[0]):
-        for idx, order in enumerate(exchange.fetch_order_book(route[0][pair_idx]["symbol"])[actions[pair_idx]]):
+        # iterate over order book
+        for idx, order in enumerate(exchange.fetch_order_book(route[0][pair_idx]['symbol'])[actions[pair_idx]]): 
             if pair_idx == 0:
                 amount_rec[pair_idx] = origin_amount
             else:
@@ -219,80 +231,62 @@ def get_route_margin(route, exchange, profit_margin, fee_per_trade):
                 print("Not enough volume at " + str(order_2[1]))
                 continue
 
-    print(amount_rec_after_fees.pop())
-    return amount_rec_after_fees.pop()/origin_amount
+    route = (route[0], route[1], amount_rec_after_fees.pop()/origin_amount, price, amount_rec, amount_rec_after_fees)
+    return route
 
-def visualize_route(route, margin):
-
+def visualize(route):
+    sides = []
+    route_viz = []
     for action in route[1]:
         if action == True:
             sides.append("buy")
         else:
             sides.append("sell")
 
-    route_viz = []
     route_viz.append("Route: ")
     for idx, ticker in enumerate(route[0]):
-       route_viz.append("{}:{}".format(ticker, sides[idx]))
+       print(ticker)
+       route_viz.append("{}:{}".format(ticker['symbol'], sides[idx]))
 
-    route_viz.append("|| margin = {}".format(margin))
+    route_viz.append("|| margin = {}".format(route[2]))
 
     print(*route_viz)
      
-def try_route(route, exchange, profit_margin, fee_per_trade):
-    print(get_route_margin(route,exchange,profit_margin, fee_per_trade))
-    route_viz = []
-    visualize_route(route, margin)
+def try_route(route):
+
     # check if margin is enough
     # pass in route tickers, route trade actions and fee_per_trade
-    trades_confirmed = False
-    while(not trades_confirmed):
+    execute = False
+    while(not execute):
+        route.refresh()
+        route.visualize()
         # refresh margin every few seco
-        time = time
-        margin = get_estimate_route_margin(route[0], route[1], fee_per_trade)
-        print(margin)
-        if margin >= 1 + (1 * profit_margin) and not margin >= 2:
+        if route.margin >= 1 + (1 * profit_margin) and not margin >= 2:
             #arbi_routes.append((route, trade_actions, margin))
             
             # Print some info about the calculated trades in the route
-            print("Preparing to execute route: {}:{} -> {}:{} -> {}:{} || margin = {}".format(route[0][0]["symbol"], sides[0], route[0][1]["symbol"], sides[1], route[0][2]["symbol"], sides[2], margin))
-            print("starting with an origin amount of: {} {} ".format(origin_amount, route[0][0]['symbol'].split('/')[1]))
-            for i in range(len(sides)):
-                if i != 0:
-                   quote_amount = amount_rec[i-1]
-
-                else:
-                    quote_amount = origin_amount 
-
-                if sides[i] == 'buy':
-                    print("Buying {} {} with {} {}".format(amount_rec[i], route[0][i]['symbol'].split('/')[0], quote_amount,
-                         route[0][i]['symbol'].split('/')[1]))
-                    print("Buying 1 {} at a price of {} {}".format(route[0][i]['symbol'].split('/')[0], price[i], route[0][i]['symbol'].split('/')[1]))
-
-                else: 
-                    print("Selling {} {} for {} {}".format(amount_rec[i], route[0][i]['symbol'].split('/')[0], quote_amount,
-                         route[0][i]['symbol'].split('/')[1]))
-                    print("Selling 1 {} at a price of {} {}".format(route[0][i]['symbol'].split('/')[0], price[i], route[0][i]['symbol'].split('/')[1]))
-
-            # Iterate over tickers in route, executing trades
-            for i in range(len(route[0])):
-                ticker = route[0][i]
+            
+            # Visualize
+            for i in range(len(route.tickers)):
+                ticker = route.tickers[i]
                 # if trade_action == buy
-                if route[1][i] == True:
-                    print("place a buy order for " + ticker['symbol'] + 'with a base currency quantity of: ' +  str(amount_rec[i]) +
+                if route.sides[i] == 'buy':
+                    print("place a buy order for " + ticker['symbol'] + 'with a base currency quantity of: ' +  str(route.amounts_rec[i]) +
                          "at a price of: " + str(price[i]) + '?')
-                    #exchange.create_limit_buy_order(ticker['symbol'], amount_rec[i], price[i])
+                    #exchange.create_limit_buy_order(ticker['symbol'], route.amounts_rec[i], price[i])
                 else: 
-                    print("place a sell order for " + ticker['symbol'] + 'with a base currency quantity of: ' +  str(amount_rec[i]) +
+                    print("place a sell order for " + ticker['symbol'] + 'with a base currency quantity of: ' +  str(route.amounts_rec[i]) +
                          "at a price of: " + str(price[i]) + '?')
                     #exchange.create_limit_sell_order(ticker['symbol'], trade_amount_btc, price[i])
+
+
             print("executing_trade")
 
             #execute_trade(())
         else: 
-            print("Margin not sufficient for : route: {}:{} -> {}:{} -> {}:{} || margin = {}".format(ticker["symbol"], trade_actions[0], ticker_2["symbol"], trade_actions[1], ticker_3["symbol"], trade_actions[2], margin))
+            print("Profit Margin lost on route refresh, is now: " + str(route.margin))
+            return
         
-        return
 
 exchange_id = 'binance'
 exchange_class = getattr(ccxt, exchange_id)
