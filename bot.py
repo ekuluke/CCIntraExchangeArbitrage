@@ -89,14 +89,14 @@ def identify_arbi(exchange, amount_of_origin, vol_safety_thresh=0.1, profit_marg
     # TODO: CALCULATE BEFORE RELEASE
 
     if __name__ ==  '__main__':
-        with mp.Pool(4) as pool:
+        with mp.Pool(6) as pool:
             pool.map(check_if_arbitrage_exists, high_vol_tickers.values())
 
 
 
 def check_if_arbitrage_exists(ticker):
     fee_per_trade = 0.00075
-    profit_margin = 0.001
+    profit_margin = 0.003
     trade_action, trade_action_2, trade_action_3 = True, True, True
     if float(ticker['info']['bidPrice']) <= 0.00000000 or int(ticker['info']['count']) < 5:
         print('ERROR: corrupted ticker: ' + ticker['symbol'])
@@ -232,7 +232,7 @@ def get_route_margin(route, exchange, profit_margin, fee_per_trade):
                 break
 
             else:
-                print("Not enough volume at " + str(order_2[1]))
+                print("Not enough volume at " + str(order[1]))
                 continue
 
     route = (route[0], route[1], amount_rec_after_fees.pop()/origin_amount, price, amount_rec, amount_rec_after_fees)
@@ -261,11 +261,11 @@ def try_route(route):
     # check if margin is enough
     # pass in route tickers, route trade actions and fee_per_trade
     execute_trades = False
-    while(not execute_trades):
+    while(execute_trades == False):
         route.refresh()
         route.visualize()
         # refresh margin every few seco
-        if route.profitable:
+        if route.profitable == True:
             #arbi_routes.append((route, trade_actions, margin))
             
             # Print some info about the calculated trades in the route
@@ -282,12 +282,15 @@ def try_route(route):
                     print("place a sell order for " + ticker['symbol'] + 'with a base currency quantity of: ' +  str(route.amounts_rec[i]) +
                          "at a price of: " + str(route.prices[i]) + '?')
                     #exchange.create_limit_sell_order(ticker['symbol'], trade_amount_btc, price[i])
-        if input("execute trades: y/n") == 'y':
-            execute_trades = True
-            route.execute()
-            break
-        else:
-            execute_trades = False
+
+            if input("execute trades: y/n") == 'y':
+                execute_trades = True
+                route.execute()
+                break
+
+            else:
+                print("Margin lost")
+                execute_trades = False
 
 
 exchange_id = 'binance'

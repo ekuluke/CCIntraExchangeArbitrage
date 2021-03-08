@@ -36,14 +36,6 @@ class Route:
  
     
     def refresh(self):
-        for idx, order in enumerate(self.exchange.fetch_order_book('BTC/AUD')['asks']):
-            # if the order's ask is less than the trade_amount_aud, continue loop with the next ask price
-            # To summarise, this statement checks to see if the order at this price does not have enough volume, and thus,
-            # is lower in value than the desired amount set in trade_amount_aud. 
-            origin_amount = self.starting_amount/order[0]
-            if origin_amount < order[1] + order[1] * self.vol_safety_thresh:
-                break
-
         book_sides = []
         # depending on the side of the trade, retrieve orderbook that contains asks or bids
         for side in self.sides:
@@ -59,6 +51,7 @@ class Route:
 
         # Series of loops that iterate over each pair in the arbitrage route to calculate the best price avaliable while still having enough volume
         # to fill the trades.
+        #print(*self.tickers)
         for pair_idx, pair in enumerate(self.tickers):
             # iterate over order book
             for idx, order in enumerate(self.exchange.fetch_order_book(self.tickers[pair_idx]['symbol'])[book_sides[pair_idx]]): 
@@ -76,6 +69,7 @@ class Route:
                 # apply fee
                 self.amounts_rec_after_fees[pair_idx] = self.amounts_rec[pair_idx]
                 #print(self.amounts_rec_after_fees[pair_idx])
+                print("Applying Fee")
                 self.amounts_rec_after_fees[pair_idx] -= self.amounts_rec_after_fees[pair_idx] * self.fee_per_trade
                 if order[1] > (self.amounts_rec[pair_idx] + self.amounts_rec[pair_idx]*self.vol_safety_thresh):
                     self.prices[pair_idx] = order[0]
