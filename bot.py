@@ -93,7 +93,7 @@ def identify_arbi(exchange, amount_of_origin, vol_safety_thresh=0.1, profit_marg
     # TODO: CALCULATE BEFORE RELEASE
 
     if __name__ ==  '__main__':
-        with mp.Pool(6) as pool:
+        with mp.Pool(8) as pool:
             event = mp.Event()
             pool.map(check_if_arbitrage_exists, high_vol_tickers.values())
 
@@ -106,14 +106,14 @@ def check_if_arbitrage_exists(ticker):
     profit_margin = 0.0001
     trade_action, trade_action_2, trade_action_3 = True, True, True
     if float(ticker['info']['bidPrice']) <= 0.00000000 or int(ticker['info']['count']) < 5:
-        print('ERROR: corrupted ticker: ' + ticker['symbol'])
+        #print('ERROR: corrupted ticker: ' + ticker['symbol'])
         return
     origin = ticker["symbol"]
     print("Finding routes for " + ticker["symbol"])
     trade_action = True
     for ticker_2 in get_tickers_with_curr(ticker["symbol"].split('/')[0], origin).values():
         if float(ticker_2['info']['bidPrice']) <= 0.00000000 or int(ticker_2['info']['count']) < 5:
-            print('ERROR: corrupted ticker: ' + ticker_2['symbol'])
+            #print('ERROR: corrupted ticker: ' + ticker_2['symbol'])
             continue
         if ticker_2["symbol"].split('/')[1] == ticker["symbol"].split('/')[0]:
             trade_action_2 = True
@@ -144,7 +144,7 @@ def check_if_arbitrage_exists(ticker):
             continue
 
         if float(ticker_3['info']['bidPrice']) <= 0.00000000 or int(ticker_3['info']['count']) < 5:
-            print('ERROR: corrupted ticker: ' + ticker_3['symbol'])
+            #print('ERROR: corrupted ticker: ' + ticker_3['symbol'])
             continue
 
         #print("route: {}:{} -> {}:{} -> {}:{}".format(ticker["symbol"], trade_action, ticker_2["symbol"], trade_action_2, ticker_3["symbol"], trade_action_3))
@@ -238,5 +238,7 @@ markets = exchange.load_markets()
 print(exchange.has['fetchTickers'])
 high_vol_tickers = get_high_vol_pairs(exchange)
 identify_arbi(exchange,1)
+
+
 
 

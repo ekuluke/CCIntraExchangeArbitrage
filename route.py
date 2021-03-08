@@ -22,7 +22,7 @@ class Route:
         #self.profit
     @property
     def profitable(self):
-        return (route.margin >= 1 + (1 * profit_margin) and not route.margin >= 2)
+        return (self.margin >= 1 + (1 * profit_margin) and not self.margin >= 2)
 
     def visualize(self):
         print("Visualizing Route")
@@ -55,33 +55,72 @@ class Route:
         anchor_coins = ['BUSD', 'USDT', 'USDC']
         buys = []
         sells = []
-        if not any(self.tickers[0]['symbol'] in x for x in anchor_coins):
+        if not any(x in self.tickers[0]['symbol'] for x in anchor_coins):
+            print("First ticker does not contain any anchor coins: " + " || ".join(anchor_coins))
             for anchor in anchor_coins:
                 symbol_buy = self.tickers[0]['symbol'].split('/')[1] + '/' + anchor
                 symbol_sell = anchor + '/' + self.tickers[0]['symbol'].split('/')[1]
-                buy_ticker = self.exchange.fetch_ticker(symbol_buy)
-                sell_ticker = self.exchange.fetch_ticker(symbol_sell)
-                # check if tickers valid
-                if float(buy_ticker['info']['bidPrice']) <= 0.00000000 or int(buy_ticker['info']['count']) < 5:
-                    buys.append(buy_ticker)
-                if float(sell_ticker['info']['bidPrice']) <= 0.00000000 or int(sell_ticker['info']['count']) < 5:
-                    sells.append(sell_ticker)
+                try:
+                    buy_ticker = self.exchange.fetch_ticker(symbol_buy)
+                    print(buy_ticker['symbol'])
+                    # check if tickers valid
+                    if float(buy_ticker['info']['bidPrice']) > 0.00000000 and int(buy_ticker['info']['count']) > 5:
+                        buys.append(buy_ticker)
 
-            highest_sell = sells[0]
-            lowest_buy = buys[0]
-            for ticker in sells:
-                if not ticker == None:
-                    if ticker['bid'] > highest_sell['bid']:
-                        highest_sell = ticker
-            for ticker in buys:
-                if not ticker == None:
-                    if ticker['ask'] < lowest_buy['ask']:
-                        lowest_buy = ticker
+                except:
+                    sell_ticker = self.exchange.fetch_ticker(symbol_sell)
+                    print(sell_ticker['symbol'])
+                    if float(sell_ticker['info']['bidPrice']) > 0.00000000 and int(sell_ticker['info']['count']) < 5:
+                        sells.append(sell_ticker)
 
-            print("Buys:")
-            print(*buys['symbol'])
-            print("Sells:")
-            print(*sells['symbol'])
+            try:
+                lowest_ask = buys[0]
+                for ticker in buys:
+                    print(ticker['symbol'])
+                    if not ticker == None:
+                        if ticker['ask'] < lowest_ask['ask']:
+                            lowest_ask = ticker
+
+            except:
+                try:
+                    highest_bid = sells[0]
+                    for ticker in sells:
+                        print(ticker['symbol'])
+                        if not ticker == None:
+                            if ticker['bid'] > highest_bid['bid']:
+                                highest_bid = ticker
+
+                
+                except:
+                    print("ERROR: No route from an anchor coin could be found")
+                    return
+
+            if lowest_ask is not None:
+                # Insert the anchor to original origin conversion ticker
+                self.tickers.insert(0, lowest_ask)
+                self.sides.insert(0, 'buy')
+                
+                # On the new last ticker, sell the original ending coin for the new origin anchor coin by flipping the side of the anchor conversion ticker
+                self.tickers.append(lowest_ask)
+                self.sides.append('sell')
+            else:
+                # Insert the anchor to original origin conversion ticker
+                self.tickers.insert(0, highest_bid)
+                self.sides.insert(0, 'sell')
+                
+                # On the new last ticker, sell the original ending coin for the new origin anchor coin by flipping the side of the anchor conversion ticker
+                self.tickers.append(highest_bid)
+                self.sides.append('buy')
+
+            # visualise modified route
+            self.visualize()
+        else:
+            for anchor in anchor_coins:
+                # ticker[0] always set to buy even if it is the base of a pair and should be sold
+                if self.tickers[0]['symbol'].split('/')[0] == anchor:
+                    self.sides[0] = 'sell'
+                    print("Switching 1st ticker to sell")
+                    
         for pair_idx, pair in enumerate(self.tickers):
             # iterate over order book
             for idx, order in enumerate(self.exchange.fetch_order_book(self.tickers[pair_idx]['symbol'])[book_sides[pair_idx]]): 
