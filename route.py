@@ -52,6 +52,36 @@ class Route:
         # Series of loops that iterate over each pair in the arbitrage route to calculate the best price avaliable while still having enough volume
         # to fill the trades.
         #print(*self.tickers)
+        anchor_coins = ['BUSD', 'USDT', 'USDC']
+        buys = []
+        sells = []
+        if not any(self.tickers[0]['symbol'] in x for x in anchor_coins):
+            for anchor in anchor_coins:
+                symbol_buy = self.tickers[0]['symbol'].split('/')[1] + '/' + anchor
+                symbol_sell = anchor + '/' + self.tickers[0]['symbol'].split('/')[1]
+                buy_ticker = self.exchange.fetch_ticker(symbol_buy)
+                sell_ticker = self.exchange.fetch_ticker(symbol_sell)
+                # check if tickers valid
+                if float(buy_ticker['info']['bidPrice']) <= 0.00000000 or int(buy_ticker['info']['count']) < 5:
+                    buys.append(buy_ticker)
+                if float(sell_ticker['info']['bidPrice']) <= 0.00000000 or int(sell_ticker['info']['count']) < 5:
+                    sells.append(sell_ticker)
+
+            highest_sell = sells[0]
+            lowest_buy = buys[0]
+            for ticker in sells:
+                if not ticker == None:
+                    if ticker['bid'] > highest_sell['bid']:
+                        highest_sell = ticker
+            for ticker in buys:
+                if not ticker == None:
+                    if ticker['ask'] < lowest_buy['ask']:
+                        lowest_buy = ticker
+
+            print("Buys:")
+            print(*buys['symbol'])
+            print("Sells:")
+            print(*sells['symbol'])
         for pair_idx, pair in enumerate(self.tickers):
             # iterate over order book
             for idx, order in enumerate(self.exchange.fetch_order_book(self.tickers[pair_idx]['symbol'])[book_sides[pair_idx]]): 
@@ -83,7 +113,8 @@ class Route:
                         break
 
                     else:
-                        print("Not enough volume at " + str(order[1]))
+                        print("{} Not enough volume: This order has an amount of: {} which is less than the threshold of: {}"
+                              .format(pair['symbol'], str(order[1]), self.amounts_rec[pair_idx] + self.amounts_rec[pair_idx]*self.vol_safety_thresh))
                         continue
                 
                 # The coin in the order[1] and the coin in amounts_rec are NOT the same
@@ -98,7 +129,8 @@ class Route:
                         break
 
                     else:
-                        print("Not enough amount at " + str(order[1]))
+                        print("{} Not enough volume: This order has an amount of: {} which is less than the threshold of: {}"
+                              .format(pair['symbol'], converted_amount, self.amounts_rec[pair_idx] + self.amounts_rec[pair_idx]*self.vol_safety_thresh))
                         continue
 
 

@@ -102,7 +102,7 @@ def identify_arbi(exchange, amount_of_origin, vol_safety_thresh=0.1, profit_marg
 def check_if_arbitrage_exists(ticker):
     while(processes_paused == True):
         time.sleep(1)
-    fee_per_trade = 0.00075
+    fee_per_trade = 0.000750
     profit_margin = 0.0001
     trade_action, trade_action_2, trade_action_3 = True, True, True
     if float(ticker['info']['bidPrice']) <= 0.00000000 or int(ticker['info']['count']) < 5:
