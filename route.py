@@ -61,9 +61,11 @@ class Route:
                     self.amounts_rec[pair_idx] = self.amounts_rec[pair_idx-1]
                 if self.sides[pair_idx] == 'buy':
                     # use the coin received in the previous ticker to buy the other coin in the current ticker
+                    # selling quote, buying base
                     self.amounts_rec[pair_idx] = self.amounts_rec[pair_idx]/order[0]
                 else:
                     # sell the coin received in the previous ticker to receive the other coin in the current ticker
+                    # buying quote, selling base
                     self.amounts_rec[pair_idx] = self.amounts_rec[pair_idx]*order[0]
 
                 # apply fee
@@ -71,15 +73,37 @@ class Route:
                 #print(self.amounts_rec_after_fees[pair_idx])
                 print("Applying Fee")
                 self.amounts_rec_after_fees[pair_idx] -= self.amounts_rec_after_fees[pair_idx] * self.fee_per_trade
-                if order[1] > (self.amounts_rec[pair_idx] + self.amounts_rec[pair_idx]*self.vol_safety_thresh):
-                    self.prices[pair_idx] = order[0]
-                    self.volumes[pair_idx] = order[1]
-                    #print(self.amounts_rec_after_fees[pair_idx])
-                    break
 
+                # The coin in the order[1] and the coin in amounts_rec are the same
+                if self.sides[pair_idx] == 'buy':
+                    if order[1] > (self.amounts_rec[pair_idx] + self.amounts_rec[pair_idx]*self.vol_safety_thresh):
+                        self.prices[pair_idx] = order[0]
+                        self.volumes[pair_idx] = order[1]
+                        #print(self.amounts_rec_after_fees[pair_idx])
+                        break
+
+                    else:
+                        print("Not enough volume at " + str(order[1]))
+                        continue
+                
+                # The coin in the order[1] and the coin in amounts_rec are NOT the same
                 else:
-                    print("Not enough volume at " + str(order_2[1]))
-                    continue
+                    # Convert order amount in the base currency to the order amount equivalent in the quote currency
+                    # This is because amounts_rec is in the quote currency.
+                    converted_amount = (order[0]*order[1])
+                    if converted_amount > (self.amounts_rec[pair_idx] + self.amounts_rec[pair_idx]*self.vol_safety_thresh):
+                        self.prices[pair_idx] = order[0]
+                        self.volumes[pair_idx] = order[1]
+                        #print(self.amounts_rec_after_fees[pair_idx])
+                        break
+
+                    else:
+                        print("Not enough amount at " + str(order[1]))
+                        continue
+
+
+ 
+                       
         self.margin = self.amounts_rec_after_fees.pop()/self.starting_amount
         return
 

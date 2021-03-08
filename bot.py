@@ -3,7 +3,8 @@ import pandas as pd
 import numpy as np
 import ccxt
 import time
-import multiprocess as mp
+import multiprocessing as mp
+from inputimeout import inputimeout, TimeoutOccurred
 from route import Route
 pd.options.display.float_format = '{:.10f}'.format
 pd.options.display.precision = 5
@@ -85,18 +86,24 @@ def identify_arbi(exchange, amount_of_origin, vol_safety_thresh=0.1, profit_marg
     # amount of origin = amount of the first quote currency(origin) that will be traded 
     # vol_safety_tresh = additional percentage of an ask's amount that acts as a threshold in an effort to prevent slippage
     # where the quote symbol is the key
+
+    global processes_paused
+    processes_paused = False
     cross_rate = 0
     # TODO: CALCULATE BEFORE RELEASE
 
     if __name__ ==  '__main__':
         with mp.Pool(6) as pool:
+            event = mp.Event()
             pool.map(check_if_arbitrage_exists, high_vol_tickers.values())
 
 
 
 def check_if_arbitrage_exists(ticker):
+    while(processes_paused == True):
+        time.sleep(1)
     fee_per_trade = 0.00075
-    profit_margin = 0.003
+    profit_margin = 0.0001
     trade_action, trade_action_2, trade_action_3 = True, True, True
     if float(ticker['info']['bidPrice']) <= 0.00000000 or int(ticker['info']['count']) < 5:
         print('ERROR: corrupted ticker: ' + ticker['symbol'])
@@ -168,130 +175,51 @@ def check_if_arbitrage_exists(ticker):
      
         
 #def get_vol_by_price(ticker, symbol_1_vol):
-def get_route_margin(route, exchange, profit_margin, fee_per_trade):
-    vol_safety_thresh = 0.20
-    margin_lost = False
-    trade_amount_aud = 0.001 # amount, in aud, of the first trade. Will be converted to btc below
-    for idx, order in enumerate(exchange.fetch_order_book('BTC/AUD')['asks']):
-        # if the order's ask is less than the trade_amount_aud, continue loop with the next ask price
-        # To summarise, this statement checks to see if the order at this price does not have enough volume, and thus,
-        # is lower in value than the desired amount set in trade_amount_aud. 
-        origin_amount = trade_amount_aud/order[0]
-        if origin_amount < order[1] + order[1] * vol_safety_thresh:
-            break
-
-    actions = []
-    sides = []
-    # depending on the trade action, retrieve orderbook that contains asks or bids
-    for action in route[1]:
-        if action == True:
-            actions.append("asks")
-        else:
-            actions.append("bids")
     
-    for action in route[1]:
-        if action == True:
-            sides.append("buy")
-        else:
-            sides.append("sell")
-
-
-    price = [0]*len(route[0])
-    volume = [0]*len(route[0])
-    amount_rec = [0]*len(route[0]) # amount of coin received that would be received from executing the n'th trade
-    amount_rec_after_fees = [0]*len(route[0]) # above but after fees are applied. When using BNB, fees are not subtracted from the amount of the coin received and thus
-    # to calculate the margin, the actual amount received(above) and the amount received after fees must be kept seperate
-    print(origin_amount)
-    # check if enough origin 
-    
-
-    # Series of loops that iterate over each pair in the arbitrage route to calculate the best price avaliable while still having enough volume
-    # to fill the trades.
-    for pair_idx, pair in enumerate(route[0]):
-        # iterate over order book
-        for idx, order in enumerate(exchange.fetch_order_book(route[0][pair_idx]['symbol'])[actions[pair_idx]]): 
-            if pair_idx == 0:
-                amount_rec[pair_idx] = origin_amount
-            else:
-                amount_rec[pair_idx] = amount_rec[pair_idx-1]
-            if sides[pair_idx] == 'buy':
-                # use the coin received in the previous ticker to buy the other coin in the current ticker
-                amount_rec[pair_idx] = amount_rec[pair_idx]/order[0]
-            else:
-                # sell the coin received in the previous ticker to receive the other coin in the current ticker
-                amount_rec[pair_idx] = amount_rec[pair_idx]*order[0]
-
-            # apply fee
-            amount_rec_after_fees[pair_idx] = amount_rec[pair_idx]
-            #print(amount_rec_after_fees[pair_idx])
-            amount_rec_after_fees[pair_idx] -= amount_rec_after_fees[pair_idx] * fee_per_trade
-            if order[1] > (amount_rec[pair_idx] + amount_rec[pair_idx]*vol_safety_thresh):
-                price[pair_idx] = order[0]
-                volume[pair_idx] = order[1]
-                #print(amount_rec_after_fees[pair_idx])
-                break
-
-            else:
-                print("Not enough volume at " + str(order[1]))
-                continue
-
-    route = (route[0], route[1], amount_rec_after_fees.pop()/origin_amount, price, amount_rec, amount_rec_after_fees)
-    return route
-
-def visualize(route):
-    sides = []
-    route_viz = []
-    for action in route[1]:
-        if action == True:
-            sides.append("buy")
-        else:
-            sides.append("sell")
-
-    route_viz.append("Route: ")
-    for idx, ticker in enumerate(route[0]):
-       print(ticker)
-       route_viz.append("{}:{}".format(ticker['symbol'], sides[idx]))
-
-    route_viz.append("|| margin = {}".format(route[2]))
-
-    print(*route_viz)
-     
 def try_route(route):
+    
+    route.refresh()
+    route.visualize()
+    print("Profitable: " + str(route.profitable))
+    if route.profitable == True:
+        
+        if processes_paused == False:
+            processes_paused = True 
+            # wait for processes to complete before asking for input
+            time.sleep(3)
 
-    # check if margin is enough
-    # pass in route tickers, route trade actions and fee_per_trade
-    execute_trades = False
-    while(execute_trades == False):
-        route.refresh()
-        route.visualize()
-        # refresh margin every few seco
-        if route.profitable == True:
-            #arbi_routes.append((route, trade_actions, margin))
-            
-            # Print some info about the calculated trades in the route
-            
-            # Visualize
-            for i in range(len(route.tickers)):
-                ticker = route.tickers[i]
-                # if trade_action == buy
-                if route.sides[i] == 'buy':
-                    print("place a buy order for " + ticker['symbol'] + 'with a base currency quantity of: ' +  str(route.amounts_rec[i]) +
-                         "at a price of: " + str(route.prices[i]) + '?')
-                    #exchange.create_limit_buy_order(ticker['symbol'], route.amounts_rec[i], price[i])
-                else: 
-                    print("place a sell order for " + ticker['symbol'] + 'with a base currency quantity of: ' +  str(route.amounts_rec[i]) +
-                         "at a price of: " + str(route.prices[i]) + '?')
-                    #exchange.create_limit_sell_order(ticker['symbol'], trade_amount_btc, price[i])
+        #arbi_routes.append((route, trade_actions, margin))
+        
+        # Print some info about the calculated trades in the route
+        
+        # Visualize
+        for i in range(len(route.tickers)):
+            ticker = route.tickers[i]
+            # if trade_action == buy
+            if route.sides[i] == 'buy':
+                print("place a buy order for " + ticker['symbol'] + 'with a base currency quantity of: ' +  str(route.amounts_rec[i]) +
+                     "at a price of: " + str(route.prices[i]) + '?')
+                #exchange.create_limit_buy_order(ticker['symbol'], route.amounts_rec[i], price[i])
+            else: 
+                print("place a sell order for " + ticker['symbol'] + 'with a base currency quantity of: ' +  str(route.amounts_rec[i]) +
+                     "at a price of: " + str(route.prices[i]) + '?')
+                #exchange.create_limit_sell_order(ticker['symbol'], trade_amount_btc, price[i])
+        
+        try:
+            i = inputimeout("execute trades: y/n", 2)
+        except TimeoutOccurred:
+            try_route(route)
 
-            if input("execute trades: y/n") == 'y':
-                execute_trades = True
-                route.execute()
-                break
+        if i == 'y':
+            route.execute()
 
-            else:
-                print("Margin lost")
-                execute_trades = False
+        else:
+            print("Input was not y: skipping trade")
 
+
+        # Resume Processes
+        processes_paused = False
+        return
 
 exchange_id = 'binance'
 exchange_class = getattr(ccxt, exchange_id)
