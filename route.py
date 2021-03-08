@@ -36,13 +36,7 @@ class Route:
  
     
     def refresh(self):
-        book_sides = []
-        # depending on the side of the trade, retrieve orderbook that contains asks or bids
-        for side in self.sides:
-            if side == "buy":
-                book_sides.append("asks")
-            else:
-                book_sides.append("bids")
+
 
 
        # to calculate the margin, the actual amount received(above) and the amount received after fees must be kept seperate
@@ -70,7 +64,7 @@ class Route:
                 except:
                     sell_ticker = self.exchange.fetch_ticker(symbol_sell)
                     print(sell_ticker['symbol'])
-                    if float(sell_ticker['info']['bidPrice']) > 0.00000000 and int(sell_ticker['info']['count']) < 5:
+                    if float(sell_ticker['info']['bidPrice']) > 0.00000000 and int(sell_ticker['info']['count']) > 5:
                         sells.append(sell_ticker)
 
             try:
@@ -81,6 +75,17 @@ class Route:
                         if ticker['ask'] < lowest_ask['ask']:
                             lowest_ask = ticker
 
+                if lowest_ask is not None:
+                    print("Adding anchor conversion: " + lowest_ask['symbol'])
+                    # Insert the anchor to original origin conversion ticker
+                    self.tickers.insert(0, lowest_ask)
+                    self.sides.insert(0, 'buy')
+                    
+                    # On the new last ticker, sell the original ending coin for the new origin anchor coin by flipping the side of the anchor conversion ticker
+                    self.tickers.append(lowest_ask)
+                    self.sides.append('sell')
+
+
             except:
                 try:
                     highest_bid = sells[0]
@@ -90,27 +95,20 @@ class Route:
                             if ticker['bid'] > highest_bid['bid']:
                                 highest_bid = ticker
 
+                    print("Adding anchor conversion: " + highest_bid['symbol'])
+                    # Insert the anchor to original origin conversion ticker
+                    self.tickers.insert(0, highest_bid)
+                    self.sides.insert(0, 'sell')
+                    
+                    # On the new last ticker, sell the original ending coin for the new origin anchor coin by flipping the side of the anchor conversion ticker
+                    self.tickers.append(highest_bid)
+                    self.sides.append('buy')
+
+
                 
                 except:
                     print("ERROR: No route from an anchor coin could be found")
                     return
-
-            if lowest_ask is not None:
-                # Insert the anchor to original origin conversion ticker
-                self.tickers.insert(0, lowest_ask)
-                self.sides.insert(0, 'buy')
-                
-                # On the new last ticker, sell the original ending coin for the new origin anchor coin by flipping the side of the anchor conversion ticker
-                self.tickers.append(lowest_ask)
-                self.sides.append('sell')
-            else:
-                # Insert the anchor to original origin conversion ticker
-                self.tickers.insert(0, highest_bid)
-                self.sides.insert(0, 'sell')
-                
-                # On the new last ticker, sell the original ending coin for the new origin anchor coin by flipping the side of the anchor conversion ticker
-                self.tickers.append(highest_bid)
-                self.sides.append('buy')
 
             # visualise modified route
             self.visualize()
@@ -120,7 +118,20 @@ class Route:
                 if self.tickers[0]['symbol'].split('/')[0] == anchor:
                     self.sides[0] = 'sell'
                     print("Switching 1st ticker to sell")
-                    
+        
+        book_sides = []
+        # depending on the side of the trade, retrieve orderbook that contains asks or bids
+        for side in self.sides:
+            if side == "buy":
+                book_sides.append("asks")
+            else:
+                book_sides.append("bids")
+        
+        self.prices = [0]*len(self.tickers)
+        self.volumes = [0]*len(self.tickers)
+        self.amounts_rec = [0]*len(self.tickers) # amount of coin received from executing the n'th trade, actual coin determined by either side of ticker
+        self.amounts_rec_after_fees = [0]*len(self.tickers) # above but after fees are applied. When using BNB, fees are not subtracted from the amount of the coin received and thus
+
         for pair_idx, pair in enumerate(self.tickers):
             # iterate over order book
             for idx, order in enumerate(self.exchange.fetch_order_book(self.tickers[pair_idx]['symbol'])[book_sides[pair_idx]]): 
