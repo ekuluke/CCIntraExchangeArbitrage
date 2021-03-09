@@ -64,12 +64,15 @@ def get_estimate_route_margin(tickers, trade_actions, fee_per_trade):
         #    print(*ticker.values())
         if trade_actions[count] == True and not ticker['ask'] <= 0:
             
+            #print(ticker['ask'])
             # buy, convert amount
             amount = amount / ticker['ask'] # divide by ask so that the bid(buy order) gets filled instantly
             # apply fee to new amount 
             amount = amount - amount * fee_per_trade
         elif not ticker['bid'] <= 0:
             # sell
+
+            #print(ticker['bid'])
             amount = amount * ticker["bid"]  # multiply by bid so that the ask(sell order) gets filled instantly     
             amount = amount - amount * fee_per_trade 
 
@@ -103,13 +106,13 @@ def check_if_arbitrage_exists(ticker):
     while(processes_paused == True):
         time.sleep(1)
     fee_per_trade = 0.000750
-    profit_margin = 0.0001
+    profit_margin = 0.001
     trade_action, trade_action_2, trade_action_3 = True, True, True
     if float(ticker['info']['bidPrice']) <= 0.00000000 or int(ticker['info']['count']) < 5:
         #print('ERROR: corrupted ticker: ' + ticker['symbol'])
         return
     origin = ticker["symbol"]
-    print("Finding routes for " + ticker["symbol"])
+    #print("Finding routes for " + ticker["symbol"])
     trade_action = True
     for ticker_2 in get_tickers_with_curr(ticker["symbol"].split('/')[0], origin).values():
         if float(ticker_2['info']['bidPrice']) <= 0.00000000 or int(ticker_2['info']['count']) < 5:
@@ -151,11 +154,16 @@ def check_if_arbitrage_exists(ticker):
         route_tickers = [ticker, ticker_2, ticker_3]
         trade_actions = [trade_action, trade_action_2, trade_action_3]
         margin = get_estimate_route_margin(route_tickers, trade_actions, fee_per_trade)
-        if margin > 1:
-            print("route: {}:{} -> {}:{} -> {}:{} || margin = {}".format(ticker["symbol"], trade_action, ticker_2["symbol"], trade_action_2, ticker_3["symbol"], trade_action_3, margin))
-        if margin >= 1 + (1 * profit_margin) and not margin >= 2:
-            #str_routes.append(("route: {}:{} -> {}:{} -> {}:{} || margin = {}".format(ticker["symbol"], trade_action, ticker_2["symbol"], trade_action_2, ticker_3["symbol"], trade_action_3, margin), route, trade_actions, margin))
-            print("trying route")
+        sides = []
+        for action in trade_actions:
+            if action == True:
+                sides.append("buy")
+            else:
+                sides.append("sell")
+
+        route = Route(route_tickers, sides, exchange, profit_margin, fee_per_trade)
+        try_route(route)
+
             #for route in str_routes:
             #route = (route[0], route[1], route[2], get_estimate_route_margin(route[1],route[2], fee_per_trade))
             #str_routes.sort(key=lambda x: x[3], reverse=True) 
@@ -163,16 +171,7 @@ def check_if_arbitrage_exists(ticker):
             #TODO: Refactor route into a class for much greater readability
             #arbi_routes.append((route, trade_actions, margin))
             #route = (route_tickers, trade_actions, margin)
-            sides = []
-            for action in trade_actions:
-                if action == True:
-                    sides.append("buy")
-                else:
-                    sides.append("sell")
-
-            route = Route(route_tickers, sides, exchange, profit_margin, fee_per_trade)
-            try_route(route)
-     
+                 
         
 #def get_vol_by_price(ticker, symbol_1_vol):
     
@@ -180,7 +179,6 @@ def try_route(route):
     
     route.refresh()
     route.visualize()
-    print("Profitable: " + str(route.profitable))
     if route.profitable == True:
         
         if processes_paused == False:
@@ -235,7 +233,6 @@ symb = 'ETH/BTC'
 filename = '{}-{}2020.csv'.format(symb.replace('/','-'),t_frame)
 markets = exchange.load_markets()
 
-print(exchange.has['fetchTickers'])
 high_vol_tickers = get_high_vol_pairs(exchange)
 identify_arbi(exchange,1)
 

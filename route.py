@@ -22,10 +22,10 @@ class Route:
         #self.profit
     @property
     def profitable(self):
-        return (self.margin >= 1 + (1 * profit_margin) and not self.margin >= 2)
+        return (self.margin >= 1 + (1 * self.profit_margin) and not self.margin >= 2)
 
     def visualize(self):
-        print("Visualizing Route")
+        #print("Visualizing Route")
         route_viz = []
         route_viz.append("Route: ")
         for idx, ticker in enumerate(self.tickers):
@@ -50,33 +50,35 @@ class Route:
         buys = []
         sells = []
         if not any(x in self.tickers[0]['symbol'] for x in anchor_coins):
-            print("First ticker does not contain any anchor coins: " + " || ".join(anchor_coins))
+            #print("First ticker does not contain any anchor coins: " + " || ".join(anchor_coins))
             for anchor in anchor_coins:
                 symbol_buy = self.tickers[0]['symbol'].split('/')[1] + '/' + anchor
                 symbol_sell = anchor + '/' + self.tickers[0]['symbol'].split('/')[1]
                 try:
                     buy_ticker = self.exchange.fetch_ticker(symbol_buy)
-                    print(buy_ticker['symbol'])
+                    #print(buy_ticker['symbol'])
                     # check if tickers valid
                     if float(buy_ticker['info']['bidPrice']) > 0.00000000 and int(buy_ticker['info']['count']) > 5:
                         buys.append(buy_ticker)
 
                 except:
-                    sell_ticker = self.exchange.fetch_ticker(symbol_sell)
-                    print(sell_ticker['symbol'])
-                    if float(sell_ticker['info']['bidPrice']) > 0.00000000 and int(sell_ticker['info']['count']) > 5:
-                        sells.append(sell_ticker)
-
-            try:
+                    try:
+                        sell_ticker = self.exchange.fetch_ticker(symbol_sell)
+                        #print(sell_ticker['symbol'])
+                        if float(sell_ticker['info']['bidPrice']) > 0.00000000 and int(sell_ticker['info']['count']) > 5:
+                            sells.append(sell_ticker)
+                    except:
+                        pass
+            if len(buys) != 0:
                 lowest_ask = buys[0]
                 for ticker in buys:
-                    print(ticker['symbol'])
+                    #print(ticker['symbol'])
                     if not ticker == None:
                         if ticker['ask'] < lowest_ask['ask']:
                             lowest_ask = ticker
 
                 if lowest_ask is not None:
-                    print("Adding anchor conversion: " + lowest_ask['symbol'])
+                    #print("Adding anchor conversion: " + lowest_ask['symbol'])
                     # Insert the anchor to original origin conversion ticker
                     self.tickers.insert(0, lowest_ask)
                     self.sides.insert(0, 'buy')
@@ -85,39 +87,39 @@ class Route:
                     self.tickers.append(lowest_ask)
                     self.sides.append('sell')
 
+            elif len(sells) != 0:
+                #print("trying sells")
+                highest_bid = sells[0]
+                for ticker in sells:
+                    #print(ticker['symbol'])
+                    if not ticker == None:
+                        if ticker['bid'] > highest_bid['bid']:
+                            highest_bid = ticker
 
-            except:
-                try:
-                    highest_bid = sells[0]
-                    for ticker in sells:
-                        print(ticker['symbol'])
-                        if not ticker == None:
-                            if ticker['bid'] > highest_bid['bid']:
-                                highest_bid = ticker
-
-                    print("Adding anchor conversion: " + highest_bid['symbol'])
-                    # Insert the anchor to original origin conversion ticker
-                    self.tickers.insert(0, highest_bid)
-                    self.sides.insert(0, 'sell')
-                    
-                    # On the new last ticker, sell the original ending coin for the new origin anchor coin by flipping the side of the anchor conversion ticker
-                    self.tickers.append(highest_bid)
-                    self.sides.append('buy')
-
-
+                #print("Adding anchor conversion: " + highest_bid['symbol'])
+                # Insert the anchor to original origin conversion ticker
+                self.tickers.insert(0, highest_bid)
+                self.sides.insert(0, 'sell')
                 
-                except:
-                    print("ERROR: No route from an anchor coin could be found")
-                    return
+                # On the new last ticker, sell the original ending coin for the new origin anchor coin by flipping the side of the anchor conversion ticker
+                self.tickers.append(highest_bid)
+                self.sides.append('buy')
+
+
+            else: 
+                print("ERROR: No route from an anchor coin could be found")
+                return
 
             # visualise modified route
-            self.visualize()
         else:
             for anchor in anchor_coins:
                 # ticker[0] always set to buy even if it is the base of a pair and should be sold
                 if self.tickers[0]['symbol'].split('/')[0] == anchor:
                     self.sides[0] = 'sell'
-                    print("Switching 1st ticker to sell")
+                    # add end route conversion ticker to convert back to anchor coin
+                    self.tickers.append(self.tickers[0])
+                    self.tickers.append('buy')
+                    #print("Switching 1st ticker to sell")
         
         book_sides = []
         # depending on the side of the trade, retrieve orderbook that contains asks or bids
@@ -136,24 +138,33 @@ class Route:
             # iterate over order book
             for idx, order in enumerate(self.exchange.fetch_order_book(self.tickers[pair_idx]['symbol'])[book_sides[pair_idx]]): 
                 if pair_idx == 0:
+                    #print("starting amount:" + str(self.starting_amount))
                     self.amounts_rec[pair_idx] = self.starting_amount
+                    self.amounts_rec_after_fees[pair_idx] = self.starting_amount
                 else:
                     self.amounts_rec[pair_idx] = self.amounts_rec[pair_idx-1]
+                    self.amounts_rec_after_fees[pair_idx] = self.amounts_rec_after_fees[pair_idx-1]
                 if self.sides[pair_idx] == 'buy':
                     # use the coin received in the previous ticker to buy the other coin in the current ticker
                     # selling quote, buying base
+                    #print(pair['symbol'] + "Converting amount through buy: " + str(self.amounts_rec[pair_idx]) + ' / ' + str(order[0]))
                     self.amounts_rec[pair_idx] = self.amounts_rec[pair_idx]/order[0]
+                    self.amounts_rec_after_fees[pair_idx] = self.amounts_rec_after_fees[pair_idx]/order[0]
+                    #print(pair['symbol'] + "New Amount: " + str(self.amounts_rec[pair_idx]))
                 else:
                     # sell the coin received in the previous ticker to receive the other coin in the current ticker
                     # buying quote, selling base
+
+                    #print(pair['symbol'] + "Converting amount through sell: " + str(self.amounts_rec[pair_idx]) + ' * ' + str(order[0]))
                     self.amounts_rec[pair_idx] = self.amounts_rec[pair_idx]*order[0]
+                    self.amounts_rec_after_fees[pair_idx] = self.amounts_rec_after_fees[pair_idx]*order[0]
+                    #print(pair['symbol'] + "New Amount: " + str(self.amounts_rec[pair_idx]))
 
                 # apply fee
-                self.amounts_rec_after_fees[pair_idx] = self.amounts_rec[pair_idx]
                 #print(self.amounts_rec_after_fees[pair_idx])
-                print("Applying Fee")
-                self.amounts_rec_after_fees[pair_idx] -= self.amounts_rec_after_fees[pair_idx] * self.fee_per_trade
-
+                #print("Applying Fee")
+                self.amounts_rec_after_fees[pair_idx] = self.amounts_rec_after_fees[pair_idx] - self.amounts_rec_after_fees[pair_idx] * self.fee_per_trade
+                #print(pair['symbol'] + "After fee amount: " + str(self.amounts_rec_after_fees[pair_idx]))
                 # The coin in the order[1] and the coin in amounts_rec are the same
                 if self.sides[pair_idx] == 'buy':
                     if order[1] > (self.amounts_rec[pair_idx] + self.amounts_rec[pair_idx]*self.vol_safety_thresh):
@@ -163,8 +174,8 @@ class Route:
                         break
 
                     else:
-                        print("{} Not enough volume: This order has an amount of: {} which is less than the threshold of: {}"
-                              .format(pair['symbol'], str(order[1]), self.amounts_rec[pair_idx] + self.amounts_rec[pair_idx]*self.vol_safety_thresh))
+                        #print("{} Not enough volume: This order has an amount of: {} which is less than the threshold of: {}"
+                              #.format(pair['symbol'], str(order[1]), self.amounts_rec[pair_idx] + self.amounts_rec[pair_idx]*self.vol_safety_thresh))
                         continue
                 
                 # The coin in the order[1] and the coin in amounts_rec are NOT the same
@@ -179,8 +190,8 @@ class Route:
                         break
 
                     else:
-                        print("{} Not enough volume: This order has an amount of: {} which is less than the threshold of: {}"
-                              .format(pair['symbol'], converted_amount, self.amounts_rec[pair_idx] + self.amounts_rec[pair_idx]*self.vol_safety_thresh))
+                        #print("{} Not enough volume: This order has an amount of: {} which is less than the threshold of: {}"
+                              #.format(pair['symbol'], converted_amount, self.amounts_rec[pair_idx] + self.amounts_rec[pair_idx]*self.vol_safety_thresh))
                         continue
 
 
