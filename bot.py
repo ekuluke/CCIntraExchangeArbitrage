@@ -148,6 +148,7 @@ def check_if_arbitrage_exists(ticker):
 
         if float(ticker_3['info']['bidPrice']) <= 0.00000000 or int(ticker_3['info']['count']) < 5:
             #print('ERROR: corrupted ticker: ' + ticker_3['symbol'])
+            # more fixes
             continue
 
         #print("route: {}:{} -> {}:{} -> {}:{}".format(ticker["symbol"], trade_action, ticker_2["symbol"], trade_action_2, ticker_3["symbol"], trade_action_3))
